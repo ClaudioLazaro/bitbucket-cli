@@ -214,14 +214,16 @@ func newCmdView(f *cmdutil.Factory) *cobra.Command {
 
 func newCmdCreate(f *cmdutil.Factory) *cobra.Command {
 	var repoFlag, title, body, bodyFile, base, head string
-	var closeSource, draft, fill, web bool
+	var closeSource, draft, fill, web, update bool
 	var reviewers []string
 	var out *cmdutil.OutputFlags
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a pull request",
-		Long:  "Open a pull request from the current branch (or --head) into the repository default branch (or --base).",
-		Args:  cobra.NoArgs,
+		Long: "Open a pull request from the current branch (or --head) into the repository default branch (or --base).\n\n" +
+			"Fails if a pull request is already open for the same source and destination: Bitbucket Cloud would\n" +
+			"silently update that pull request instead of creating a new one. Pass --update to change it on purpose.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			app, err := f.App()
@@ -258,8 +260,31 @@ func newCmdCreate(f *cmdutil.Factory) *cobra.Command {
 				return fmt.Errorf("source and destination branches are both %q", source)
 			}
 
+			// Bitbucket Cloud answers a second POST for the same source and
+			// destination by silently UPDATING the open pull request, so a
+			// "create" would overwrite its title and description. Refuse unless
+			// the caller asked for an update.
+			existing, err := app.Client.FindOpenPullRequestBetween(ctx, ref.Owner, ref.Slug, source, destination)
+			if err != nil {
+				return fmt.Errorf("check for an open pull request: %w", err)
+			}
+			if existing != nil && !update {
+				return fmt.Errorf("pull request #%d is already open for %s -> %s\n%s\nPass --update to change its title or description",
+					existing.ID, source, destination, pullRequestURL(app, ref, existing))
+			}
+
+			// --fill reads the branch the pull request is about: with --head that
+			// is not necessarily the branch checked out in this clone.
+			fillRef := "HEAD"
+			if fill && head != "" && (title == "" || (body == "" && bodyFile == "")) {
+				fillRef, err = git.BranchRef(ctx, head)
+				if err != nil {
+					return fmt.Errorf("--fill: %w", err)
+				}
+			}
+
 			if fill && title == "" {
-				title, err = git.LastCommitSubject(ctx)
+				title, err = git.CommitSubject(ctx, fillRef)
 				if err != nil {
 					return err
 				}
@@ -278,7 +303,7 @@ func newCmdCreate(f *cmdutil.Factory) *cobra.Command {
 					return err
 				}
 			} else if fill && body == "" {
-				body, _ = git.LastCommitBody(ctx)
+				body, _ = git.CommitBody(ctx, fillRef)
 			}
 
 			uuids := make([]string, 0, len(reviewers))
@@ -288,6 +313,27 @@ func newCmdCreate(f *cmdutil.Factory) *cobra.Command {
 					return fmt.Errorf("resolve reviewer %q: %w", reviewer, err)
 				}
 				uuids = append(uuids, uuid)
+			}
+
+			if existing != nil {
+				var reviewerUUIDs []string
+				if len(uuids) > 0 {
+					reviewerUUIDs = uuids
+				}
+				pr, err := app.Client.UpdatePullRequest(ctx, ref.Owner, ref.Slug, existing.ID, bitbucket.UpdatePullRequestInput{
+					Title:             title,
+					Description:       body,
+					CloseSourceBranch: closeSource,
+					Reviewers:         reviewerUUIDs,
+				})
+				if err != nil {
+					return err
+				}
+				if out.IsJSON() {
+					return out.Print(app.IO.Out, pr)
+				}
+				fmt.Fprintf(app.IO.Out, "Updated pull request #%d\n%s\n", pr.ID, pullRequestURL(app, ref, pr))
+				return nil
 			}
 
 			pr, err := app.Client.CreatePullRequest(ctx, ref.Owner, ref.Slug, bitbucket.CreatePullRequestInput{
@@ -323,8 +369,9 @@ func newCmdCreate(f *cmdutil.Factory) *cobra.Command {
 	cmd.Flags().StringArrayVarP(&reviewers, "reviewer", "r", nil, "Request a review from a username (repeatable)")
 	cmd.Flags().BoolVar(&closeSource, "close-source-branch", false, "Close the source branch after merging")
 	cmd.Flags().BoolVar(&draft, "draft", false, "Create as a draft pull request")
-	cmd.Flags().BoolVarP(&fill, "fill", "f", false, "Use the last commit subject and body")
+	cmd.Flags().BoolVarP(&fill, "fill", "f", false, "Use the subject and body of the last commit on the source branch")
 	cmd.Flags().BoolVarP(&web, "web", "w", false, "Open the pull request in a browser")
+	cmd.Flags().BoolVar(&update, "update", false, "Update the pull request already open for the same branches instead of failing")
 	return cmd
 }
 

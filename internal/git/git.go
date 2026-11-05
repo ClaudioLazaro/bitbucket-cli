@@ -87,6 +87,27 @@ func LastCommitBody(ctx context.Context) (string, error) {
 	return Run(ctx, "log", "-1", "--pretty=%b")
 }
 
+// CommitSubject returns the subject of the commit at ref.
+func CommitSubject(ctx context.Context, ref string) (string, error) {
+	return Run(ctx, "log", "-1", "--pretty=%s", ref, "--")
+}
+
+// CommitBody returns the body of the commit at ref.
+func CommitBody(ctx context.Context, ref string) (string, error) {
+	return Run(ctx, "log", "-1", "--pretty=%b", ref, "--")
+}
+
+// BranchRef resolves a branch name to a ref that exists in the local clone:
+// the local branch first, then its copy under origin.
+func BranchRef(ctx context.Context, branch string) (string, error) {
+	for _, ref := range []string{"refs/heads/" + branch, "refs/remotes/origin/" + branch} {
+		if _, err := Run(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err == nil {
+			return ref, nil
+		}
+	}
+	return "", fmt.Errorf("branch %q not found locally or in origin (try `git fetch`)", branch)
+}
+
 // BranchExists reports whether a local branch exists.
 func BranchExists(ctx context.Context, name string) bool {
 	_, err := Run(ctx, "show-ref", "--verify", "--quiet", "refs/heads/"+name)

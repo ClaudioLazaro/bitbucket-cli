@@ -4,6 +4,20 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato
 segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto
 usa [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [Não publicado]
+
+### Corrigido
+
+- `pr create` não sobrescreve mais um pull request aberto. Quando já existe PR
+  aberto da mesma origem para o mesmo destino, o Bitbucket Cloud responde ao
+  POST **atualizando o PR existente** (título, descrição, revisores) em vez de
+  recusar; o comando agora confere antes e falha mostrando o PR. Para alterar
+  de propósito, `--update` faz um PUT explícito no PR existente.
+- `pr create --fill --head <branch>` lê o assunto e o corpo do último commit
+  **dessa branch** (local ou `origin/<branch>`), e não do HEAD do clone.
+- `pipeline list` mostra a branch de origem nas pipelines de pull request
+  (`target.source`), que antes saíam com a coluna vazia.
+
 ## [0.1.1] - 2026-11-05
 
 ### Corrigido

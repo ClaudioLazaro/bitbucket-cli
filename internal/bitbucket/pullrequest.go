@@ -63,6 +63,66 @@ func (c *Client) FindOpenPullRequestForBranch(ctx context.Context, owner, slug, 
 	return &prs[0], nil
 }
 
+// FindOpenPullRequestBetween returns the open pull request from source into
+// destination, or nil when there is none.
+//
+// Bitbucket Cloud does not reject a second POST for a source/destination pair
+// that already has an open pull request: it silently updates the existing one
+// (title, description, reviewers). Callers that intend to create must check
+// first, or they overwrite someone's pull request.
+func (c *Client) FindOpenPullRequestBetween(ctx context.Context, owner, slug, source, destination string) (*PullRequest, error) {
+	q := url.Values{}
+	q.Set("state", "OPEN")
+	q.Set("q", fmt.Sprintf(`source.branch.name="%s" AND destination.branch.name="%s"`,
+		strings.ReplaceAll(source, `"`, `\"`), strings.ReplaceAll(destination, `"`, `\"`)))
+	prs, err := c.ListPullRequests(ctx, owner, slug, q, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(prs) == 0 {
+		return nil, nil
+	}
+	return &prs[0], nil
+}
+
+// UpdatePullRequestInput holds the fields changed by UpdatePullRequest. Empty
+// strings and a nil Reviewers slice are left untouched.
+type UpdatePullRequestInput struct {
+	Title             string
+	Description       string
+	CloseSourceBranch bool
+	Reviewers         []string
+}
+
+// UpdatePullRequest edits an existing pull request.
+func (c *Client) UpdatePullRequest(ctx context.Context, owner, slug string, id int, in UpdatePullRequestInput) (*PullRequest, error) {
+	if !c.IsCloud() {
+		return nil, unsupported("pull request update")
+	}
+	body := map[string]any{}
+	if in.Title != "" {
+		body["title"] = in.Title
+	}
+	if in.Description != "" {
+		body["description"] = in.Description
+	}
+	if in.CloseSourceBranch {
+		body["close_source_branch"] = true
+	}
+	if in.Reviewers != nil {
+		reviewers := make([]map[string]string, 0, len(in.Reviewers))
+		for _, uuid := range in.Reviewers {
+			reviewers = append(reviewers, map[string]string{"uuid": uuid})
+		}
+		body["reviewers"] = reviewers
+	}
+	var pr PullRequest
+	if err := c.Send(ctx, "PUT", c.prItemPath(owner, slug, id), body, &pr); err != nil {
+		return nil, err
+	}
+	return &pr, nil
+}
+
 // CreatePullRequest opens a pull request.
 func (c *Client) CreatePullRequest(ctx context.Context, owner, slug string, in CreatePullRequestInput) (*PullRequest, error) {
 	if !c.IsCloud() {

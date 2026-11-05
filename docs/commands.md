@@ -537,6 +537,9 @@ Create a pull request
 
 Open a pull request from the current branch (or --head) into the repository default branch (or --base).
 
+Fails if a pull request is already open for the same source and destination: Bitbucket Cloud would
+silently update that pull request instead of creating a new one. Pass --update to change it on purpose.
+
 **Uso:** `bk pr create [flags]`
 
 **Flags:**
@@ -546,13 +549,14 @@ Open a pull request from the current branch (or --head) into the repository defa
 - `-F, --body-file string` - Read the description from a file (- for stdin)
 - `--close-source-branch` - Close the source branch after merging
 - `--draft` - Create as a draft pull request
-- `-f, --fill` - Use the last commit subject and body
+- `-f, --fill` - Use the subject and body of the last commit on the source branch
 - `-H, --head string` - Source branch
 - `--json[=FIELDS]` - Output JSON; use --json=FIELD,... to select fields
 - `-R, --repo string` - Repository as OWNER/REPO
 - `-r, --reviewer stringArray` - Request a review from a username (repeatable)
 - `--template string` - Format output with a Go template
 - `-t, --title string` - Pull request title
+- `--update` - Update the pull request already open for the same branches instead of failing
 - `-w, --web` - Open the pull request in a browser
 
 ## bk pr decline
