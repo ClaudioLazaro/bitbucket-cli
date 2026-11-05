@@ -34,6 +34,18 @@ Ou, sem clonar:
 go install github.com/ClaudioLazaro/bitbucket-cli/cmd/bk@latest
 ```
 
+Ou baixe o binário publicado na release:
+
+```sh
+gh release download v0.1.0 --repo ClaudioLazaro/bitbucket-cli --pattern 'bk_linux_amd64.tar.gz'
+tar -xzf bk_linux_amd64.tar.gz
+sudo install bk /usr/local/bin/bk
+```
+
+Troque o `--pattern` para `bk_linux_arm64.tar.gz`, `bk_darwin_amd64.tar.gz`,
+`bk_darwin_arm64.tar.gz` ou `bk_windows_amd64.zip`. Os checksums estão em
+`checksums.txt` na mesma release.
+
 O `make build` injeta versão, commit e data via `-ldflags`.
 
 ### Build e releases
