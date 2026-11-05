@@ -4,7 +4,7 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato
 segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto
 usa [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
-## [Não publicado]
+## [0.1.2] - 2026-11-05
 
 ### Corrigido
 
@@ -77,5 +77,6 @@ preparada para Data Center.
 - Sem extensões, pager ou renderização de Markdown.
 - `download upload` usa arquivo temporário para multipart, não streaming puro.
 
+[0.1.2]: https://github.com/ClaudioLazaro/bitbucket-cli/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/ClaudioLazaro/bitbucket-cli/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ClaudioLazaro/bitbucket-cli/releases/tag/v0.1.0

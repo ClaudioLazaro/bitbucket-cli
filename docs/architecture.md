@@ -174,3 +174,8 @@ status), e `0` para todas.
 - **Sem app passwords**: removidas em julho/2026.
 - **`bk api` desde a 0.1**: cobre qualquer endpoint ainda não tipado e reduz a
   pressão por paridade imediata.
+- **`pr create` consulta PR aberto antes do POST**: o Bitbucket Cloud responde
+  a um POST duplicado atualizando o PR em vez de recusar. O comando falha por
+  padrão e `--update` faz o PUT explícito.
+- **Pipelines de PR**: `target.ref_name` é nulo; a branch de origem está em
+  `target.source` e a de destino em `target.destination`.

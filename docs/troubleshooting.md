@@ -121,6 +121,22 @@ bk repo list minha-workspace --json=slug,is_private
 `--json` sozinho imprime todos os campos. Esse comportamento é coberto por
 teste para evitar regressão.
 
+## `pull request #N is already open`
+
+O Bitbucket Cloud trata um `POST /pullrequests` para uma origem/destino que já
+tem PR aberto como **atualização silenciosa** do PR existente. O `bk` consulta
+antes e recusa para não sobrescrever título, descrição ou revisores de outra
+pessoa.
+
+Para alterar o PR existente de propósito:
+
+```sh
+bk pr create --update --title "Novo título" --body "Nova descrição"
+```
+
+Se a intenção era outro PR, feche/merge o existente ou use outra branch de
+origem.
+
 ## "not a git repository" ou "no Bitbucket git remote"
 
 Fora de um clone, ou com remote apontando para outro host, informe o

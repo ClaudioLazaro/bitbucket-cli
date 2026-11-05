@@ -54,6 +54,10 @@ Todos Cloud (`/repositories/{w}/{slug}/pullrequests`).
 | `bk pr checks` | `GET .../statuses` |
 | `bk pr commits` | `GET .../commits` |
 
+`bk pr create` consulta `GET .../pullrequests?state=OPEN&q=source.branch.name=...
+AND destination.branch.name=...` antes do POST, porque o Bitbucket atualiza um
+PR aberto existente em vez de recusar. `--update` faz `PUT .../pullrequests/{id}`.
+
 ## Pipelines
 
 Todos Cloud (`/repositories/{w}/{slug}/pipelines...`).
@@ -68,6 +72,10 @@ Todos Cloud (`/repositories/{w}/{slug}/pipelines...`).
 | `bk pipeline variable list` | `GET /pipelines_config/variables` |
 | `bk pipeline variable set` | `POST` ou `PUT /pipelines_config/variables/{uuid}` |
 | `bk pipeline variable delete` | `DELETE /pipelines_config/variables/{uuid}` |
+
+Pipelines de pull request (`pipeline_pullrequest_target`) têm `ref_name` nulo;
+a branch de origem vem em `target.source` e a de destino em `target.destination`.
+`bk pipeline list` usa `source` quando `ref_name` está vazio.
 
 ## Workspaces, snippets e downloads
 

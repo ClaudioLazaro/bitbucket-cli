@@ -68,8 +68,8 @@ gh run download --repo ClaudioLazaro/bitbucket-cli --name bk-snapshot
 Para publicar uma release:
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 ## Autenticação
@@ -152,6 +152,8 @@ bk repo clone minha-workspace/api ./api
 bk pr list --state open --author @me
 bk pr view 42 --comments
 bk pr create --title "feat: cache" --body "Adiciona cache" --reviewer colega
+# Se já existe PR aberto para a mesma origem/destino, use --update:
+bk pr create --update --title "feat: cache" --body "Adiciona cache"
 bk pr checkout 42
 bk pr checks 42
 bk pr merge 42 --strategy squash --close-source-branch
