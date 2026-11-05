@@ -144,9 +144,9 @@ func newCmdView(f *cmdutil.Factory) *cobra.Command {
 			}
 			if len(steps) > 0 {
 				fmt.Fprintln(app.IO.Out)
-				t := tableprinter.New(app.IO).Header("STATUS", "STEP", "DURATION")
-				for _, step := range steps {
-					t.AddRow(step.Status(), step.Name, formatDuration(step.DurationInSeconds))
+				t := tableprinter.New(app.IO).Header("#", "STATUS", "STEP", "DURATION")
+				for i, step := range steps {
+					t.AddRow(strconv.Itoa(i+1), step.Status(), step.Name, formatDuration(step.DurationInSeconds))
 				}
 				if err := t.Render(); err != nil {
 					return err
@@ -258,7 +258,7 @@ func newCmdStop(f *cmdutil.Factory) *cobra.Command {
 
 func newCmdLogs(f *cmdutil.Factory) *cobra.Command {
 	var repoFlag string
-	var stepNumber int
+	var stepSelector string
 	cmd := &cobra.Command{
 		Use:   "logs UUID|BUILD",
 		Short: "Print pipeline step logs",
@@ -284,16 +284,13 @@ func newCmdLogs(f *cmdutil.Factory) *cobra.Command {
 			if len(steps) == 0 {
 				return fmt.Errorf("pipeline %s has no steps yet", uuid)
 			}
-			selected := steps
-			if stepNumber > 0 {
-				if stepNumber > len(steps) {
-					return fmt.Errorf("step %d does not exist (pipeline has %d steps)", stepNumber, len(steps))
-				}
-				selected = steps[stepNumber-1 : stepNumber]
+			selected, err := selectSteps(steps, stepSelector)
+			if err != nil {
+				return err
 			}
-			for i, step := range selected {
+			for _, step := range selected {
 				if len(selected) > 1 {
-					fmt.Fprintf(app.IO.Out, "=== step %d: %s (%s) ===\n", i+1, step.Name, step.Status())
+					fmt.Fprintf(app.IO.Out, "=== step %d: %s (%s) ===\n", stepPosition(steps, step.UUID)+1, step.Name, step.Status())
 				}
 				if err := app.Client.StreamStepLog(ctx, app.IO.Out, ref.Owner, ref.Slug, uuid, step.UUID); err != nil {
 					return err
@@ -306,8 +303,70 @@ func newCmdLogs(f *cmdutil.Factory) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVarP(&repoFlag, "repo", "R", "", "Repository as OWNER/REPO")
-	cmd.Flags().IntVar(&stepNumber, "step", 0, "Only print this step (1-based)")
+	cmd.Flags().StringVar(&stepSelector, "step", "", "Step to print: 1-based index, name, or UUID")
 	return cmd
+}
+
+func selectSteps(steps []bitbucket.Step, selector string) ([]bitbucket.Step, error) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return steps, nil
+	}
+	if index, err := strconv.Atoi(selector); err == nil {
+		if index < 1 || index > len(steps) {
+			return nil, fmt.Errorf("step %d does not exist (pipeline has %d steps: %s)", index, len(steps), stepList(steps))
+		}
+		return steps[index-1 : index], nil
+	}
+
+	normalized := strings.Trim(selector, "{}")
+	var exact []bitbucket.Step
+	for _, step := range steps {
+		if strings.EqualFold(strings.Trim(step.UUID, "{}"), normalized) || strings.EqualFold(step.Name, selector) {
+			exact = append(exact, step)
+		}
+	}
+	if len(exact) == 1 {
+		return exact, nil
+	}
+	if len(exact) > 1 {
+		return nil, fmt.Errorf("%q matches %d steps; use the 1-based index (%s)", selector, len(exact), stepList(exact))
+	}
+
+	var partial []bitbucket.Step
+	for _, step := range steps {
+		if strings.Contains(strings.ToLower(step.Name), strings.ToLower(selector)) {
+			partial = append(partial, step)
+		}
+	}
+	if len(partial) == 1 {
+		return partial, nil
+	}
+	if len(partial) > 1 {
+		return nil, fmt.Errorf("%q matches %d steps; use the 1-based index (%s)", selector, len(partial), stepList(partial))
+	}
+	return nil, fmt.Errorf("no step matches %q (available: %s)", selector, stepList(steps))
+}
+
+func stepList(steps []bitbucket.Step) string {
+	items := make([]string, 0, len(steps))
+	for i, step := range steps {
+		name := step.Name
+		if name == "" {
+			name = "(unnamed)"
+		}
+		items = append(items, fmt.Sprintf("%d=%s", i+1, name))
+	}
+	return strings.Join(items, ", ")
+}
+
+func stepPosition(steps []bitbucket.Step, uuid string) int {
+	for i, step := range steps {
+		if step.UUID == uuid {
+			return i
+		}
+	}
+	return -1
 }
 
 func newCmdVariable(f *cmdutil.Factory) *cobra.Command {

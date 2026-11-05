@@ -370,7 +370,7 @@ Print pipeline step logs
 **Flags:**
 
 - `-R, --repo string` - Repository as OWNER/REPO
-- `--step int` - Only print this step (1-based)
+- `--step string` - Step to print: 1-based index, name, or UUID
 
 ## bk pipeline run
 

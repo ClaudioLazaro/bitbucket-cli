@@ -302,9 +302,66 @@ func TestPRChecksFailedExitsOne(t *testing.T) {
 	}
 }
 
+func TestPRSummaryObject(t *testing.T) {
+	const payload = `{
+		"id": 8,
+		"title": "Summary object",
+		"state": "OPEN",
+		"summary": {"raw": "Body from summary", "markup": "markdown", "html": "<p>Body from summary</p>"},
+		"author": {"display_name": "Me"},
+		"source": {"branch": {"name": "feature"}},
+		"destination": {"branch": {"name": "main"}},
+		"updated_on": "2026-01-01T00:00:00+00:00",
+		"links": {"html": {"href": "https://bitbucket.org/acme/widgets/pull-requests/8"}}
+	}`
+	server := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/2.0/repositories/acme/widgets/pullrequests":
+			writeJSON(w, `{"values":[`+payload+`]}`)
+		case "/2.0/repositories/acme/widgets/pullrequests/8":
+			writeJSON(w, payload)
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			notFound(w)
+		}
+	})
+
+	out, _, err := runCommand(t, server, nil, "pr", "list", "-R", "acme/widgets")
+	if err != nil {
+		t.Fatalf("pr list with object summary: %v", err)
+	}
+	if !strings.Contains(out, "Summary object") {
+		t.Fatalf("output = %q", out)
+	}
+
+	view, _, err := runCommand(t, server, nil, "pr", "view", "8", "-R", "acme/widgets")
+	if err != nil {
+		t.Fatalf("pr view with object summary: %v", err)
+	}
+	if !strings.Contains(view, "Body from summary") {
+		t.Fatalf("view = %q", view)
+	}
+
+	jsonOut, _, err := runCommand(t, server, nil, "pr", "view", "8", "-R", "acme/widgets", "--json")
+	if err != nil {
+		t.Fatalf("pr view --json: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(jsonOut), &decoded); err != nil {
+		t.Fatalf("invalid JSON %q: %v", jsonOut, err)
+	}
+	if decoded["summary"] != "Body from summary" {
+		t.Fatalf("summary JSON = %#v, want a string", decoded["summary"])
+	}
+}
+
 func TestPipelineListAndLogs(t *testing.T) {
 	const pipelineUUID = "{11111111-1111-1111-1111-111111111111}"
-	const stepUUID = "{22222222-2222-2222-2222-222222222222}"
+	const buildStepUUID = "{22222222-2222-2222-2222-222222222222}"
+	const deployStepUUID = "{33333333-3333-3333-3333-333333333333}"
+	const buildLogPath = "/storage/build.log"
+	const deployLogPath = "/storage/deploy.log"
+
 	server := newServer(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/2.0/repositories/acme/widgets/pipelines":
@@ -318,10 +375,34 @@ func TestPipelineListAndLogs(t *testing.T) {
 		case "/2.0/repositories/acme/widgets/pipelines/" + pipelineUUID:
 			writeJSON(w, `{"uuid":"`+pipelineUUID+`","build_number":12,"state":{"name":"COMPLETED","result":{"name":"SUCCESSFUL"}},"target":{"ref_name":"main"}}`)
 		case "/2.0/repositories/acme/widgets/pipelines/" + pipelineUUID + "/steps":
-			writeJSON(w, `{"values":[{"uuid":"`+stepUUID+`","name":"Build","state":{"name":"COMPLETED","result":{"name":"SUCCESSFUL"}}}]}`)
-		case "/2.0/repositories/acme/widgets/pipelines/" + pipelineUUID + "/steps/" + stepUUID + "/log":
-			w.Header().Set("Content-Type", "text/plain")
-			_, _ = io.WriteString(w, "hello log\n")
+			writeJSON(w, `{"values":[
+				{"uuid":"`+buildStepUUID+`","name":"Build","state":{"name":"COMPLETED","result":{"name":"SUCCESSFUL"}}},
+				{"uuid":"`+deployStepUUID+`","name":"Deploy","state":{"name":"COMPLETED","result":{"name":"SUCCESSFUL"}}}
+			]}`)
+		case "/2.0/repositories/acme/widgets/pipelines/" + pipelineUUID + "/steps/" + buildStepUUID + "/log":
+			if got := r.Header.Get("Accept"); got != "text/plain" {
+				t.Errorf("log Accept = %q, want text/plain", got)
+				w.WriteHeader(http.StatusNotAcceptable)
+				return
+			}
+			http.Redirect(w, r, buildLogPath, http.StatusTemporaryRedirect)
+		case "/2.0/repositories/acme/widgets/pipelines/" + pipelineUUID + "/steps/" + deployStepUUID + "/log":
+			if got := r.Header.Get("Accept"); got != "text/plain" {
+				t.Errorf("log Accept = %q, want text/plain", got)
+				w.WriteHeader(http.StatusNotAcceptable)
+				return
+			}
+			http.Redirect(w, r, deployLogPath, http.StatusTemporaryRedirect)
+		case buildLogPath:
+			if got := r.Header.Get("Authorization"); got != "" {
+				t.Errorf("authorization leaked to log storage: %q", got)
+			}
+			_, _ = io.WriteString(w, "build log\n")
+		case deployLogPath:
+			if got := r.Header.Get("Authorization"); got != "" {
+				t.Errorf("authorization leaked to log storage: %q", got)
+			}
+			_, _ = io.WriteString(w, "deploy log\n")
 		default:
 			t.Errorf("unexpected path %q", r.URL.Path)
 			notFound(w)
@@ -336,12 +417,53 @@ func TestPipelineListAndLogs(t *testing.T) {
 		t.Fatalf("output = %q", out)
 	}
 
+	view, _, err := runCommand(t, server, nil, "pipeline", "view", "12", "-R", "acme/widgets")
+	if err != nil {
+		t.Fatalf("pipeline view: %v", err)
+	}
+	if !strings.Contains(view, "Build") || !strings.Contains(view, "Deploy") {
+		t.Fatalf("view = %q", view)
+	}
+
 	logs, _, err := runCommand(t, server, nil, "pipeline", "logs", "12", "-R", "acme/widgets")
 	if err != nil {
 		t.Fatalf("pipeline logs: %v", err)
 	}
-	if !strings.Contains(logs, "hello log") {
-		t.Fatalf("logs = %q", logs)
+	for _, want := range []string{"=== step 1: Build", "build log", "=== step 2: Deploy", "deploy log"} {
+		if !strings.Contains(logs, want) {
+			t.Fatalf("logs missing %q:\n%s", want, logs)
+		}
+	}
+
+	buildLogs, _, err := runCommand(t, server, nil, "pipeline", "logs", "12", "-R", "acme/widgets", "--step", "Build")
+	if err != nil {
+		t.Fatalf("pipeline logs --step Build: %v", err)
+	}
+	if !strings.Contains(buildLogs, "build log") || strings.Contains(buildLogs, "deploy log") {
+		t.Fatalf("build logs = %q", buildLogs)
+	}
+
+	deployLogs, _, err := runCommand(t, server, nil, "pipeline", "logs", "12", "-R", "acme/widgets", "--step", "2")
+	if err != nil {
+		t.Fatalf("pipeline logs --step 2: %v", err)
+	}
+	if !strings.Contains(deployLogs, "deploy log") || strings.Contains(deployLogs, "build log") {
+		t.Fatalf("deploy logs = %q", deployLogs)
+	}
+
+	uuidLogs, _, err := runCommand(t, server, nil, "pipeline", "logs", "12", "-R", "acme/widgets", "--step", deployStepUUID)
+	if err != nil {
+		t.Fatalf("pipeline logs --step UUID: %v", err)
+	}
+	if !strings.Contains(uuidLogs, "deploy log") {
+		t.Fatalf("uuid logs = %q", uuidLogs)
+	}
+
+	for _, selector := range []string{"Missing", "9"} {
+		_, _, err := runCommand(t, server, nil, "pipeline", "logs", "12", "-R", "acme/widgets", "--step", selector)
+		if err == nil {
+			t.Fatalf("--step %s: expected an error", selector)
+		}
 	}
 }
 

@@ -112,7 +112,6 @@ func (c *Client) newRequest(ctx context.Context, method, rawURL string, body []b
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.UserAgent)
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -122,6 +121,9 @@ func (c *Client) newRequest(ctx context.Context, method, rawURL string, body []b
 		for _, value := range values {
 			req.Header.Add(key, value)
 		}
+	}
+	if req.Header.Get("Accept") == "" {
+		req.Header.Set("Accept", "application/json")
 	}
 	switch strings.ToLower(c.AuthMethod) {
 	case config.AuthBasic:
@@ -219,7 +221,10 @@ func (c *Client) Send(ctx context.Context, method, path string, body any, out an
 	return decodeJSON(respData, out)
 }
 
-// GetRaw fetches path and returns the response body untouched.
+// GetRaw fetches path and returns the response body untouched. It follows
+// redirects manually so a signed storage URL is fetched without Bitbucket
+// credentials, and retries with a wildcard Accept when the host rejects the
+// requested format with 406.
 func (c *Client) GetRaw(ctx context.Context, path string, q url.Values, accept string) ([]byte, error) {
 	rawURL, err := c.resolveURL(path)
 	if err != nil {
@@ -233,8 +238,116 @@ func (c *Client) GetRaw(ctx context.Context, path string, q url.Values, accept s
 	if accept != "" {
 		headers.Set("Accept", accept)
 	}
-	_, data, err := c.doURL(ctx, http.MethodGet, rawURL, nil, "", headers)
-	return data, err
+
+	resp, data, err := c.doRaw(ctx, rawURL, headers)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusNotAcceptable && accept != "*/*" {
+		headers.Set("Accept", "*/*")
+		resp, data, err = c.doRaw(ctx, rawURL, headers)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if isRedirectStatus(resp.StatusCode) {
+		location := resp.Header.Get("Location")
+		if location == "" {
+			return nil, fmt.Errorf("HTTP %d without Location from %s", resp.StatusCode, rawURL)
+		}
+		base := resp.Request.URL
+		if base == nil {
+			base, _ = url.Parse(rawURL)
+		}
+		target, err := base.Parse(location)
+		if err != nil {
+			return nil, fmt.Errorf("invalid redirect location %q: %w", location, err)
+		}
+		if target.Scheme != "http" && target.Scheme != "https" {
+			return nil, fmt.Errorf("unsupported redirect scheme %q", target.Scheme)
+		}
+		return c.downloadRaw(ctx, target.String())
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, NewHTTPError(resp, http.MethodGet, rawURL, data)
+	}
+	return data, nil
+}
+
+func (c *Client) doRaw(ctx context.Context, rawURL string, headers http.Header) (*http.Response, []byte, error) {
+	client := c.client(false)
+	req, err := c.newRequest(ctx, http.MethodGet, rawURL, nil, "", headers)
+	if err != nil {
+		return nil, nil, err
+	}
+	if c.Debug && c.DebugOut != nil {
+		fmt.Fprintf(c.DebugOut, "> GET %s\n", req.URL.Redacted())
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	resp.Body.Close()
+	if c.Debug && c.DebugOut != nil {
+		fmt.Fprintf(c.DebugOut, "< %d %s\n", resp.StatusCode, req.URL.Redacted())
+	}
+	if readErr != nil {
+		return nil, nil, readErr
+	}
+	return resp, data, nil
+}
+
+func (c *Client) downloadRaw(ctx context.Context, rawURL string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", c.UserAgent)
+	if c.Debug && c.DebugOut != nil {
+		fmt.Fprintf(c.DebugOut, "> GET %s (redirect, no auth)\n", req.URL.Redacted())
+	}
+	resp, err := c.client(true).Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return nil, err
+	}
+	if c.Debug && c.DebugOut != nil {
+		fmt.Fprintf(c.DebugOut, "< %d %s\n", resp.StatusCode, req.URL.Redacted())
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, NewHTTPError(resp, http.MethodGet, rawURL, data)
+	}
+	return data, nil
+}
+
+func (c *Client) client(followRedirects bool) *http.Client {
+	base := c.HTTP
+	if base == nil {
+		base = http.DefaultClient
+	}
+	if followRedirects {
+		return base
+	}
+	client := *base
+	client.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &client
+}
+
+func isRedirectStatus(status int) bool {
+	switch status {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return true
+	}
+	return false
 }
 
 // SendRaw issues a request with a caller-provided body and content type.

@@ -97,6 +97,9 @@ status), e `0` para todas.
 - `Hint()` traduz 401/403/404 em ação (token, escopo, recurso).
 - Retry com backoff em 429/502/503/504, respeitando `Retry-After` (máx. 3
   tentativas).
+- Conteúdo bruto (`pr diff`, `pipeline logs`, arquivos de snippet) usa
+  `GetRaw`: envia `Accept: text/plain`, segue 307 sem repassar `Authorization`
+  e tenta `Accept: */*` quando o host responde 406.
 - `ExitError` permite código de saída específico; hoje usado por
   `bk pr checks` (1 quando há `FAILED`).
 

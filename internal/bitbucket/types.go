@@ -1,6 +1,7 @@
 package bitbucket
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -230,13 +231,56 @@ type Participant struct {
 	State    string   `json:"state"`
 }
 
+// TextContent is a Bitbucket rich-text value. Depending on the endpoint and
+// API version the same field arrives as a plain string or as an object with
+// raw, markup, and html. It marshals back to the raw string so --json output
+// keeps the historical string shape.
+type TextContent struct {
+	Raw    string `json:"raw"`
+	Markup string `json:"markup"`
+	HTML   string `json:"html"`
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (t *TextContent) UnmarshalJSON(b []byte) error {
+	trimmed := bytes.TrimSpace(b)
+	if len(trimmed) == 0 || string(trimmed) == "null" {
+		*t = TextContent{}
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var value string
+		if err := json.Unmarshal(b, &value); err != nil {
+			return err
+		}
+		*t = TextContent{Raw: value}
+		return nil
+	}
+	type alias TextContent
+	var value alias
+	if err := json.Unmarshal(b, &value); err != nil {
+		return err
+	}
+	*t = TextContent(value)
+	return nil
+}
+
+// MarshalJSON implements json.Marshaler.
+func (t TextContent) MarshalJSON() ([]byte, error) { return json.Marshal(t.Raw) }
+
+// String returns the raw text.
+func (t TextContent) String() string { return t.Raw }
+
+// IsEmpty reports whether the value has no raw text.
+func (t TextContent) IsEmpty() bool { return t.Raw == "" }
+
 // PullRequest is a Bitbucket Cloud pull request.
 type PullRequest struct {
 	Type              string         `json:"type"`
 	ID                int            `json:"id"`
 	Title             string         `json:"title"`
-	Description       string         `json:"description"`
-	Summary           string         `json:"summary"`
+	Description       TextContent    `json:"description"`
+	Summary           TextContent    `json:"summary"`
 	State             string         `json:"state"`
 	Author            *Account       `json:"author"`
 	Source            *BranchRef     `json:"source"`
@@ -256,12 +300,12 @@ type PullRequest struct {
 	Links             Links          `json:"links"`
 }
 
-// Body returns the pull request description from either API field.
+// Body returns the pull request description from the field the API populated.
 func (p *PullRequest) Body() string {
-	if p.Description != "" {
-		return p.Description
+	if p.Description.Raw != "" {
+		return p.Description.Raw
 	}
-	return p.Summary
+	return p.Summary.Raw
 }
 
 // SourceBranch returns the source branch name, if present.

@@ -201,6 +201,66 @@ func TestRepoPathShapes(t *testing.T) {
 	}
 }
 
+func TestGetRawUsesTextAcceptAndFollowsRedirect(t *testing.T) {
+	var storageAuth, storageAccept string
+	storage := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		storageAuth = r.Header.Get("Authorization")
+		storageAccept = r.Header.Get("Accept")
+		_, _ = w.Write([]byte("step log"))
+	}))
+	defer storage.Close()
+
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Accept"); got != "text/plain" {
+			t.Errorf("api Accept = %q, want text/plain", got)
+			w.WriteHeader(http.StatusNotAcceptable)
+			return
+		}
+		http.Redirect(w, r, storage.URL+"/blob", http.StatusTemporaryRedirect)
+	}))
+	defer api.Close()
+
+	client := newTestClient(t, api.URL)
+	data, err := client.GetRaw(context.Background(), "/log", nil, "text/plain")
+	if err != nil {
+		t.Fatalf("GetRaw: %v", err)
+	}
+	if string(data) != "step log" {
+		t.Fatalf("data = %q", data)
+	}
+	if storageAuth != "" {
+		t.Fatalf("authorization leaked to storage: %q", storageAuth)
+	}
+	if storageAccept != "*/*" {
+		t.Fatalf("storage Accept = %q, want */*", storageAccept)
+	}
+}
+
+func TestGetRawRetriesWildcardOn406(t *testing.T) {
+	var calls int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		if r.Header.Get("Accept") != "*/*" {
+			w.WriteHeader(http.StatusNotAcceptable)
+			return
+		}
+		_, _ = w.Write([]byte("log body"))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	data, err := client.GetRaw(context.Background(), "/log", nil, "text/plain")
+	if err != nil {
+		t.Fatalf("GetRaw: %v", err)
+	}
+	if string(data) != "log body" {
+		t.Fatalf("data = %q", data)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
 func TestCreateSnippetUsesMultipart(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/snippets/acme" {

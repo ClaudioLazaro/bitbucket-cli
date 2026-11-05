@@ -45,6 +45,8 @@ func (e *HTTPError) Hint() string {
 		return "resource not found; check the workspace/project, repository slug, and identifier"
 	case http.StatusConflict:
 		return "the resource changed concurrently or already exists; refresh and try again"
+	case http.StatusNotAcceptable:
+		return "the host refused the requested response format; rerun with BK_HTTP_DEBUG=1 and report the endpoint"
 	}
 	return ""
 }

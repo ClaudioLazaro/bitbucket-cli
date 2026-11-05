@@ -34,10 +34,10 @@ Ou, sem clonar:
 go install github.com/ClaudioLazaro/bitbucket-cli/cmd/bk@latest
 ```
 
-Ou baixe o binário publicado na release:
+Ou baixe o binário publicado na release mais recente:
 
 ```sh
-gh release download v0.1.0 --repo ClaudioLazaro/bitbucket-cli --pattern 'bk_linux_amd64.tar.gz'
+gh release download --repo ClaudioLazaro/bitbucket-cli --pattern 'bk_linux_amd64.tar.gz'
 tar -xzf bk_linux_amd64.tar.gz
 sudo install bk /usr/local/bin/bk
 ```
@@ -68,8 +68,8 @@ gh run download --repo ClaudioLazaro/bitbucket-cli --name bk-snapshot
 Para publicar uma release:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 ## Autenticação
@@ -159,7 +159,7 @@ bk pr merge 42 --strategy squash --close-source-branch
 # Pipelines
 bk pipeline list --branch main
 bk pipeline run --branch main --var DEPLOY_ENV=staging
-bk pipeline logs 128 --step 1
+bk pipeline logs 128 --step Build
 bk pipeline variable set API_URL https://api.example.com
 
 # Escape hatch para qualquer endpoint

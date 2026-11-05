@@ -4,6 +4,19 @@ Todas as mudanças relevantes deste projeto são documentadas aqui. O formato
 segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto
 usa [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
+## [0.1.1] - 2026-11-05
+
+### Corrigido
+
+- `pr list` e `pr view` não quebram mais quando a API devolve `summary` como
+  objeto `{raw, markup, html}`. O texto é extraído e `--json` continua emitindo
+  uma string.
+- `pipeline logs` envia `Accept: text/plain`, segue o redirecionamento 307 para
+  o storage sem vazar o `Authorization` e tenta `Accept: */*` quando o host
+  responde 406.
+- `pipeline logs --step` aceita índice 1-based, nome do step ou UUID; a tabela
+  de `pipeline view` agora mostra o índice.
+
 ## [0.1.0] - 2026-11-05
 
 Primeira versão funcional. Foco em Bitbucket Cloud, com camada de host
@@ -50,4 +63,5 @@ preparada para Data Center.
 - Sem extensões, pager ou renderização de Markdown.
 - `download upload` usa arquivo temporário para multipart, não streaming puro.
 
+[0.1.1]: https://github.com/ClaudioLazaro/bitbucket-cli/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/ClaudioLazaro/bitbucket-cli/releases/tag/v0.1.0
