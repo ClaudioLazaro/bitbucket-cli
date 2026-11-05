@@ -145,11 +145,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
           assets=(dist/*.tar.gz dist/*.zip dist/checksums.txt)
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber
+          if gh release view "$GITHUB_REF_NAME" --repo "$repo" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --repo "$repo" --clobber
           else
             gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --repo "$repo" \
               --title "$GITHUB_REF_NAME" \
               --generate-notes
           fi
