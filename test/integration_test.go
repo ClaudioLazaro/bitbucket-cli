@@ -212,6 +212,8 @@ func TestPRCreate(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/2.0/repositories/acme/widgets":
 			writeJSON(w, `{"slug":"widgets","full_name":"acme/widgets","mainbranch":{"name":"main"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/2.0/repositories/acme/widgets/pullrequests":
+			writeJSON(w, `{"values":[],"pagelen":1}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/2.0/repositories/acme/widgets/pullrequests":
 			data, _ := io.ReadAll(r.Body)
 			if err := json.Unmarshal(data, &createdBody); err != nil {
@@ -619,6 +621,88 @@ func TestConfigSetGet(t *testing.T) {
 		t.Fatalf("get workspace: %v", err)
 	}
 	if strings.TrimSpace(out) != "acme" {
+		t.Fatalf("output = %q", out)
+	}
+}
+
+// Bitbucket Cloud answers a POST for a source/destination pair that already has
+// an open pull request by updating it in place. pr create must refuse instead of
+// overwriting someone's title and description.
+func TestPRCreateRefusesWhenPullRequestIsOpen(t *testing.T) {
+	var query string
+	server := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/2.0/repositories/acme/widgets":
+			writeJSON(w, `{"slug":"widgets","full_name":"acme/widgets","mainbranch":{"name":"main"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/2.0/repositories/acme/widgets/pullrequests":
+			query = r.URL.Query().Get("q")
+			writeJSON(w, `{"values":[{"id":7,"title":"Existing","state":"OPEN","summary":{"raw":"x"},"links":{"html":{"href":"https://bitbucket.org/acme/widgets/pull-requests/7"}}}]}`)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			notFound(w)
+		}
+	})
+
+	_, _, err := runCommand(t, server, nil, "pr", "create", "-R", "acme/widgets", "--head", "feature", "--title", "teste", "--body", "teste")
+	if err == nil || !strings.Contains(err.Error(), "#7 is already open") || !strings.Contains(err.Error(), "--update") {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(query, `source.branch.name="feature"`) || !strings.Contains(query, `destination.branch.name="main"`) {
+		t.Fatalf("q = %q", query)
+	}
+}
+
+func TestPRCreateUpdateEditsTheOpenPullRequest(t *testing.T) {
+	var updated map[string]any
+	server := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/2.0/repositories/acme/widgets":
+			writeJSON(w, `{"slug":"widgets","full_name":"acme/widgets","mainbranch":{"name":"main"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/2.0/repositories/acme/widgets/pullrequests":
+			writeJSON(w, `{"values":[{"id":7,"title":"Old","state":"OPEN"}]}`)
+		case r.Method == http.MethodPut && r.URL.Path == "/2.0/repositories/acme/widgets/pullrequests/7":
+			data, _ := io.ReadAll(r.Body)
+			if err := json.Unmarshal(data, &updated); err != nil {
+				t.Errorf("decode body: %v", err)
+			}
+			writeJSON(w, `{"id":7,"title":"New","state":"OPEN","links":{"html":{"href":"https://bitbucket.org/acme/widgets/pull-requests/7"}}}`)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			notFound(w)
+		}
+	})
+
+	out, _, err := runCommand(t, server, nil, "pr", "create", "-R", "acme/widgets", "--head", "feature", "--title", "New", "--body", "Body", "--update")
+	if err != nil {
+		t.Fatalf("pr create --update: %v", err)
+	}
+	if !strings.Contains(out, "Updated pull request #7") {
+		t.Fatalf("output = %q", out)
+	}
+	if updated["title"] != "New" || updated["description"] != "Body" {
+		t.Fatalf("body = %+v", updated)
+	}
+	if _, ok := updated["reviewers"]; ok {
+		t.Fatalf("reviewers must be left untouched: %+v", updated)
+	}
+}
+
+func TestPipelineListShowsPullRequestSourceBranch(t *testing.T) {
+	server := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/2.0/repositories/acme/widgets/pipelines":
+			writeJSON(w, `{"values":[{"build_number":965,"state":{"name":"COMPLETED","result":{"name":"SUCCESSFUL"}},"target":{"type":"pipeline_pullrequest_target","ref_name":null,"source":"feature/x","destination":"main"},"trigger":{"name":"PUSH"}}]}`)
+		default:
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+			notFound(w)
+		}
+	})
+
+	out, _, err := runCommand(t, server, nil, "pipeline", "list", "-R", "acme/widgets")
+	if err != nil {
+		t.Fatalf("pipeline list: %v", err)
+	}
+	if !strings.Contains(out, "feature/x") {
 		t.Fatalf("output = %q", out)
 	}
 }

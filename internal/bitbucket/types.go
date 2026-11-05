@@ -374,11 +374,15 @@ type PipelineSelector struct {
 
 // PipelineTarget describes what a pipeline ran against.
 type PipelineTarget struct {
-	Type     string            `json:"type"`
-	RefType  string            `json:"ref_type"`
-	RefName  string            `json:"ref_name"`
-	Commit   *Commit           `json:"commit"`
-	Selector *PipelineSelector `json:"selector"`
+	Type    string `json:"type"`
+	RefType string `json:"ref_type"`
+	RefName string `json:"ref_name"`
+	// Source and Destination are set instead of RefName on pull request
+	// pipelines (type pipeline_pullrequest_target).
+	Source      string            `json:"source"`
+	Destination string            `json:"destination"`
+	Commit      *Commit           `json:"commit"`
+	Selector    *PipelineSelector `json:"selector"`
 }
 
 // PipelineStateResult is the outcome of a pipeline or step.

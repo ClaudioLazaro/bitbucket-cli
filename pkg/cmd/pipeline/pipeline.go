@@ -500,7 +500,11 @@ func branchOf(pipeline *bitbucket.Pipeline) string {
 	if pipeline == nil || pipeline.Target == nil {
 		return ""
 	}
-	return pipeline.Target.RefName
+	if pipeline.Target.RefName != "" {
+		return pipeline.Target.RefName
+	}
+	// Pull request pipelines carry the branches in source/destination.
+	return pipeline.Target.Source
 }
 
 func triggerOf(pipeline *bitbucket.Pipeline) string {

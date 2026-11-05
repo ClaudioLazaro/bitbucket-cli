@@ -66,3 +66,30 @@ func runGit(t *testing.T, dir string, args ...string) {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
+
+func TestCommitSubjectAndBodyOfAnotherBranch(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init", "-q", "-b", "main")
+	runGit(t, dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "on main")
+	runGit(t, dir, "checkout", "-q", "-b", "feature")
+	runGit(t, dir, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "feature subject", "-m", "feature body")
+	runGit(t, dir, "checkout", "-q", "main")
+	t.Chdir(dir)
+
+	ctx := context.Background()
+	ref, err := BranchRef(ctx, "feature")
+	if err != nil {
+		t.Fatalf("BranchRef: %v", err)
+	}
+	subject, err := CommitSubject(ctx, ref)
+	if err != nil || subject != "feature subject" {
+		t.Fatalf("subject = %q, %v (HEAD is main: must read the feature branch)", subject, err)
+	}
+	body, _ := CommitBody(ctx, ref)
+	if body != "feature body" {
+		t.Fatalf("body = %q", body)
+	}
+	if _, err := BranchRef(ctx, "missing"); err == nil {
+		t.Fatalf("BranchRef(missing) must fail")
+	}
+}
